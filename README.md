@@ -30,6 +30,43 @@ self-hosted web┘                          ↑
 
 Rewrite the name at the CLI and both clients are covered at once.
 
+## Recommended: pair with ClawGod
+
+[ClawGod](https://github.com/0Chencc/clawgod) patches the Claude Code runtime;
+happy-patch patches happy. They cover different halves of the same stack, and
+they compose well — install ClawGod first, then happy-patch.
+
+```sh
+# 1. Patch Claude Code itself (feature unlocks, auto re-patch, lean settings)
+clawgod                      # https://github.com/0Chencc/clawgod for install
+
+# 2. Patch happy so its clients stop sending their own model names
+hpy
+```
+
+**Why this order.** ClawGod rewrites the Claude Code binary and replaces the
+`claude` launcher; happy then spawns that patched binary for every session.
+Patch Claude Code *after* wiring up happy and you'd be patching a moving
+target, so get the runtime settled first.
+
+**Why both.** They solve unrelated problems and neither substitutes for the
+other:
+
+| | ClawGod | happy-patch |
+|---|---|---|
+| Target | Claude Code runtime | happy CLI |
+| Solves | feature gates, geo-steganography, tool restoration | model names rejected by third-party relays |
+| Survives upstream updates | auto re-patches on next launch | re-patches on next `hpy` run |
+
+Both tools work by patching a moving target, and both self-heal after an
+upgrade — but their re-patch triggers are independent. If a Claude Code update
+lands, ClawGod re-patches itself and happy-patch stays as it was; if happy
+updates, the reverse. Running both from the same shell keeps the two in step.
+
+> ClawGod is GPL-3.0 and not affiliated with Anthropic. It removes safety
+> restrictions (including the security-testing refusal) — read its README and
+> decide deliberately before installing.
+
 ## Install
 
 ```sh
