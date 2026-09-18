@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "happy-patch"
+version = "0.1.0"
+description = "Make the happy CLI use your locally configured Claude model"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+keywords = ["happy", "claude-code", "claude", "wrapper", "patch"]
+classifiers = [
+    "Environment :: Console",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Utilities",
+]
+
+[project.scripts]
+hpy = "happy_patch.cli:hpy_main"
+happypatch = "happy_patch.cli:patch_main"
+
+[project.optional-dependencies]
+dev = ["pytest>=7", "pytest-cov>=4"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
