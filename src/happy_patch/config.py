@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -37,8 +38,6 @@ STRICT_SUBCOMMANDS = frozenset(
 
 def env_flag(name: str) -> bool:
     """Truthy check for an env var. '0', 'false', 'no', 'off' and unset are all false."""
-    import os
-
     return os.environ.get(name, "").strip().lower() not in ("", "0", "false", "no", "off")
 
 
@@ -84,6 +83,38 @@ def resolve_model(env: dict[str, str], settings_path: Path = SETTINGS_PATH) -> s
     return str(model) if model else ""
 
 
+def is_root() -> bool:
+    """True when the process runs as root on a POSIX system.
+
+    Windows has no equivalent concept for this check, so it reports False
+    there rather than guessing.
+    """
+    geteuid = getattr(os, "geteuid", None)
+    if geteuid is None:
+        return False
+    try:
+        return geteuid() == 0
+    except OSError:
+        return False
+
+
+def sandbox_env() -> dict[str, str]:
+    """Environment that lets Claude Code accept permission-bypass flags as root.
+
+    Claude Code refuses ``--dangerously-skip-permissions`` under root unless
+    ``IS_SANDBOX=1`` is set - its documented escape hatch for containers and CI,
+    where root is the norm rather than an anomaly.
+
+    An explicit IS_SANDBOX in the ambient environment always wins, so a user
+    who turned it off on purpose is not overridden.
+    """
+    if not is_root():
+        return {}
+    if "IS_SANDBOX" in os.environ:
+        return {}
+    return {"IS_SANDBOX": "1"}
+
+
 def is_strict_subcommand(args: list[str]) -> bool:
     """True when the invocation routes to a subcommand that parses args strictly.
 
@@ -120,14 +151,13 @@ def build_argv(happy: str, user_args: list[str], env: dict[str, str]) -> list[st
 
 
 def build_child_env(env: dict[str, str]) -> dict[str, str]:
-    """Ambient environment plus the forwarded config.
+    """Ambient environment plus the forwarded config and any root workarounds.
 
     The environment is what carries the config to strict subcommands, and it
     survives happy's session sanitizer, which only strips HAPPY_*/CODEX_*.
     """
-    import os
-
     child = dict(os.environ)
+    child.update(sandbox_env())
     child.update(env)
     return child
 
@@ -139,7 +169,19 @@ def warn(message: str) -> None:
 def run(happy: str, user_args: list[str], env: dict[str, str]) -> int:
     """Launch happy and return its exit code."""
     argv = build_argv(happy, user_args, env)
-    child_env = build_child_env(env)
+
+    root_overrides = sandbox_env()
+    child_env = dict(os.environ)
+    child_env.update(root_overrides)
+    child_env.update(env)
+
+    if root_overrides:
+        warn(
+            "running as root: setting IS_SANDBOX=1 so Claude Code accepts "
+            "permission-bypass flags. Remote sessions are spawned by the happy "
+            "daemon, so it must be restarted to inherit this."
+        )
+
     try:
         return subprocess.call(argv, env=child_env)
     except KeyboardInterrupt:

@@ -293,6 +293,108 @@ def test_env_flag_tolerates_surrounding_whitespace(monkeypatch):
 
 
 # --------------------------------------------------------------------------
+# is_root / sandbox_env
+# --------------------------------------------------------------------------
+
+
+def test_is_root_true_when_euid_is_zero(monkeypatch):
+    monkeypatch.setattr(config.os, "geteuid", lambda: 0, raising=False)
+
+    assert config.is_root() is True
+
+
+def test_is_root_false_for_a_normal_user(monkeypatch):
+    monkeypatch.setattr(config.os, "geteuid", lambda: 1000, raising=False)
+
+    assert config.is_root() is False
+
+
+def test_is_root_false_without_geteuid(monkeypatch):
+    """Windows has no geteuid; the check must not explode there."""
+    monkeypatch.delattr(config.os, "geteuid", raising=False)
+
+    assert config.is_root() is False
+
+
+def test_is_root_false_when_geteuid_raises(monkeypatch):
+    def boom():
+        raise OSError("no such call")
+
+    monkeypatch.setattr(config.os, "geteuid", boom, raising=False)
+
+    assert config.is_root() is False
+
+
+def test_sandbox_env_sets_is_sandbox_as_root(monkeypatch):
+    monkeypatch.setattr(config.os, "geteuid", lambda: 0, raising=False)
+    monkeypatch.delenv("IS_SANDBOX", raising=False)
+
+    assert config.sandbox_env() == {"IS_SANDBOX": "1"}
+
+
+def test_sandbox_env_is_empty_for_normal_users(monkeypatch):
+    monkeypatch.setattr(config.os, "geteuid", lambda: 1000, raising=False)
+    monkeypatch.delenv("IS_SANDBOX", raising=False)
+
+    assert config.sandbox_env() == {}
+
+
+def test_sandbox_env_respects_an_explicit_user_choice(monkeypatch):
+    """A deliberately unset/overridden IS_SANDBOX is never clobbered."""
+    monkeypatch.setattr(config.os, "geteuid", lambda: 0, raising=False)
+    monkeypatch.setenv("IS_SANDBOX", "0")
+
+    assert config.sandbox_env() == {}
+
+
+def test_build_child_env_adds_is_sandbox_as_root(monkeypatch):
+    monkeypatch.setattr(config.os, "geteuid", lambda: 0, raising=False)
+    monkeypatch.delenv("IS_SANDBOX", raising=False)
+
+    assert config.build_child_env({})["IS_SANDBOX"] == "1"
+
+
+def test_build_child_env_leaves_is_sandbox_alone_for_users(monkeypatch):
+    monkeypatch.setattr(config.os, "geteuid", lambda: 1000, raising=False)
+    monkeypatch.delenv("IS_SANDBOX", raising=False)
+
+    assert "IS_SANDBOX" not in config.build_child_env({})
+
+
+def test_run_warns_when_it_injects_is_sandbox(monkeypatch, capsys):
+    monkeypatch.setattr(config.os, "geteuid", lambda: 0, raising=False)
+    monkeypatch.delenv("IS_SANDBOX", raising=False)
+    monkeypatch.setattr(config.subprocess, "call", lambda *a, **k: 0)
+
+    config.run("happy", ["--yolo"], ENV)
+
+    assert "IS_SANDBOX=1" in capsys.readouterr().err
+
+
+def test_run_does_not_warn_for_normal_users(monkeypatch, capsys):
+    monkeypatch.setattr(config.os, "geteuid", lambda: 1000, raising=False)
+    monkeypatch.delenv("IS_SANDBOX", raising=False)
+    monkeypatch.setattr(config.subprocess, "call", lambda *a, **k: 0)
+
+    config.run("happy", ["--yolo"], ENV)
+
+    assert "IS_SANDBOX" not in capsys.readouterr().err
+
+
+def test_run_passes_is_sandbox_to_the_subprocess(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(config.os, "geteuid", lambda: 0, raising=False)
+    monkeypatch.delenv("IS_SANDBOX", raising=False)
+    monkeypatch.setattr(
+        config.subprocess, "call", lambda argv, env=None: seen.update(env) or 0
+    )
+
+    config.run("happy", ["--yolo"], ENV)
+
+    assert seen["IS_SANDBOX"] == "1"
+
+
+# --------------------------------------------------------------------------
 # find_happy
 # --------------------------------------------------------------------------
 

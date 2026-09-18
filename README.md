@@ -110,6 +110,68 @@ happypatch --path                    # where the bundle lives
 | `HPY_VERBOSE=1` | Show what is forwarded and patched |
 | `HPY_NO_PATCH=1` | Skip patching for this run |
 
+`IS_SANDBOX` is set automatically when needed — see below.
+
+## Running as root
+
+Claude Code refuses `--dangerously-skip-permissions` under root:
+
+```
+--dangerously-skip-permissions cannot be used with root/sudo privileges for security reasons
+```
+
+The guard exists for good reason: bypassed permissions plus root means one bad
+`rm -rf` can take the machine with it.
+
+The official escape hatch is `IS_SANDBOX=1`, which tells Claude Code "this is a
+container/CI environment where root is normal." No patching involved — the
+program reads the variable and stands down. `hpy` sets it for you:
+
+```sh
+hpy --yolo        # as root: IS_SANDBOX=1 is added to the child environment
+```
+
+It is added **only** when `geteuid() == 0` **and** you have not set
+`IS_SANDBOX` yourself. An explicit value always wins, so opting out stays
+possible:
+
+```sh
+IS_SANDBOX=0 hpy --yolo        # your choice is respected
+```
+
+### Root and remote sessions
+
+This is the part that trips people up. In remote mode the session is not
+spawned by the process you just launched — it is spawned by the **long-lived
+happy daemon**, which inherited its environment whenever it started. Setting
+the variable in a shell that talks to an already-running daemon does nothing.
+
+happy only reuses a daemon whose CLI version matches, and restarts it
+otherwise. So after an upgrade, or after you restart it yourself, the daemon
+picks up `IS_SANDBOX` — and `hpy` prints a reminder to that effect:
+
+```
+[happy-patch] running as root: setting IS_SANDBOX=1 so Claude Code accepts
+permission-bypass flags. Remote sessions are spawned by the happy daemon, so
+it must be restarted to inherit this.
+```
+
+To be explicit about it:
+
+```sh
+happy daemon stop && hpy --yolo
+```
+
+Or make it permanent for every process on the box, daemon included:
+
+```sh
+echo 'export IS_SANDBOX=1' >> ~/.bashrc && source ~/.bashrc
+```
+
+> If you would rather not use the official switch, [ClawGod](#recommended-pair-with-clawgod)
+> takes the other route — it patches the check out of the Claude Code binary
+> itself. Either works; one is a documented door, the other is a modified lock.
+
 ## How the patch works
 
 Three model entry points are rewritten in happy's bundled JS — the ones for
